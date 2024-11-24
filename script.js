@@ -14,12 +14,6 @@
       <label for="ort">Ort der Begutachtung (Adresse eingeben):</label>
       <input type="text" id="ort" name="ort" required>
 
-      <label for="begutachtungsdauer">Begutachtungsdauer (Stunden):</label>
-      <input type="number" id="begutachtungsdauer" name="begutachtungsdauer" required>
-
-      <label for="erstellungsdauer">Gutachtenerstellungsdauer (Stunden):</label>
-      <input type="number" id="erstellungsdauer" name="erstellungsdauer" required>
-
       <button type="submit">Berechnen</button>
     </form>
     <div id="ergebnis"></div>
@@ -46,14 +40,17 @@
       const daten = {
         name: document.getElementById('name').value,
         gegenstand: document.getElementById('gegenstand').value,
-        schaedenhoehe: document.getElementById('schaedenhoehe').value,
+        schaedenhoehe: parseFloat(document.getElementById('schaedenhoehe').value),
         ort: document.getElementById('ort').value,
-        begutachtungsdauer: document.getElementById('begutachtungsdauer').value,
-        erstellungsdauer: document.getElementById('erstellungsdauer').value,
       };
 
-      const bueroLat = 52.2801732; // Aktualisierter Breitengrad Ihres Büros
-      const bueroLon = 10.4958380; // Aktualisierter Längengrad Ihres Büros
+      // Berechnung der Begutachtungsdauer und Gutachtenerstellungsdauer
+      const zeiten = berechneZeiten(daten.schaedenhoehe);
+      daten.begutachtungsdauer = zeiten.begutachtungsdauer;
+      daten.erstellungsdauer = zeiten.erstellungsdauer;
+
+      const bueroLat = 52.2801732; // Breitengrad Ihres Büros
+      const bueroLon = 10.4958380; // Längengrad Ihres Büros
 
       // Geocoding des Ortes der Begutachtung
       geocodeAdresseNominatim(daten.ort, function(koordinatenZiel) {
@@ -61,12 +58,20 @@
         const zielLat = koordinatenZiel[1];
 
         // Entfernung berechnen
-        const entfernungInKm = berechneEntfernungHaversine(
+        let entfernungInKm = berechneEntfernungHaversine(
           bueroLat,
           bueroLon,
           zielLat,
           zielLon
         );
+
+        // Pauschalen Prozentsatz hinzufügen
+        const faktor = 1.3; // Erhöhen um 30%
+        entfernungInKm = entfernungInKm * faktor;
+
+        // Entfernung auf die nächsten 5 km abrunden
+        entfernungInKm = Math.floor(entfernungInKm / 5) * 5;
+
         daten.strecke = entfernungInKm;
 
         // Berechnung durchführen
@@ -76,6 +81,51 @@
         zeigeErgebnisAn(daten, ergebnis);
       });
     });
+  }
+
+  // Funktion zur Berechnung der Zeiten basierend auf der Schadenshöhe
+  function berechneZeiten(schaedenhoehe) {
+    let begutachtungsdauer;
+    let erstellungsdauer;
+
+    if (schaedenhoehe <= 1000) {
+      begutachtungsdauer = 1;
+      erstellungsdauer = 2;
+    } else if (schaedenhoehe <= 2500) {
+      begutachtungsdauer = 1;
+      erstellungsdauer = 3;
+    } else if (schaedenhoehe <= 5000) {
+      begutachtungsdauer = 2;
+      erstellungsdauer = 3;
+    } else if (schaedenhoehe <= 10000) {
+      begutachtungsdauer = 3;
+      erstellungsdauer = 4;
+    } else if (schaedenhoehe <= 30000) {
+      begutachtungsdauer = 5;
+      erstellungsdauer = 6;
+    } else if (schaedenhoehe <= 75000) {
+      begutachtungsdauer = 6;
+      erstellungsdauer = 8;
+    } else if (schaedenhoehe <= 100000) {
+      begutachtungsdauer = 8;
+      erstellungsdauer = 10;
+    } else if (schaedenhoehe <= 250000) {
+      begutachtungsdauer = 12;
+      erstellungsdauer = 10;
+    } else {
+      // Für Schadenshöhen über 250.000 €
+      begutachtungsdauer = 15;
+      erstellungsdauer = 12;
+    }
+
+    // Zeiten auf die nächste halbe Stunde aufrunden
+    begutachtungsdauer = Math.ceil(begutachtungsdauer * 2) / 2;
+    erstellungsdauer = Math.ceil(erstellungsdauer * 2) / 2;
+
+    return {
+      begutachtungsdauer: begutachtungsdauer,
+      erstellungsdauer: erstellungsdauer,
+    };
   }
 
   // Funktion zur Geokodierung mit Nominatim API
@@ -133,19 +183,24 @@
     const strecke = parseFloat(daten.strecke);
     const begutachtungsdauer = parseFloat(daten.begutachtungsdauer);
     const erstellungsdauer = parseFloat(daten.erstellungsdauer);
+    const schaedenhoehe = parseFloat(daten.schaedenhoehe);
 
     const kostenAnfahrtspauschale = 0.8 * strecke;
     const kostenAnfahrt = (strecke / 100) * 85;
     const kostenErstellung = erstellungsdauer * 85;
     const kostenBegutachtung = begutachtungsdauer * 105;
 
-    const gesamtKosten = kostenAnfahrtspauschale + kostenAnfahrt + kostenErstellung + kostenBegutachtung;
+    // Neue Kostenposition: 5 % der Schadenshöhe
+    const kostenProzentSchadenshoehe = (schaedenhoehe * 0.05);
+
+    const gesamtKosten = kostenAnfahrtspauschale + kostenAnfahrt + kostenErstellung + kostenBegutachtung + kostenProzentSchadenshoehe;
 
     return {
       kostenAnfahrtspauschale: kostenAnfahrtspauschale.toFixed(2),
       kostenAnfahrt: kostenAnfahrt.toFixed(2),
       kostenErstellung: kostenErstellung.toFixed(2),
       kostenBegutachtung: kostenBegutachtung.toFixed(2),
+      kostenProzentSchadenshoehe: kostenProzentSchadenshoehe.toFixed(2),
       gesamtKosten: gesamtKosten.toFixed(2),
     };
   }
@@ -158,7 +213,7 @@
       <p><strong>Schadensgegenstand:</strong> ${daten.gegenstand}</p>
       <p><strong>Voraussichtliche Schadenshöhe:</strong> ${daten.schaedenhoehe} €</p>
       <p><strong>Ort der Begutachtung:</strong> ${daten.ort}</p>
-      <p><strong>Berechnete Anfahrtsstrecke:</strong> ${daten.strecke.toFixed(2)} km</p>
+      <p><strong>Berechnete Anfahrtsstrecke:</strong> ${daten.strecke} km</p>
       <p><strong>Begutachtungsdauer:</strong> ${daten.begutachtungsdauer} Stunden</p>
       <p><strong>Gutachtenerstellungsdauer:</strong> ${daten.erstellungsdauer} Stunden</p>
       <hr>
@@ -166,6 +221,7 @@
       <p><strong>Kosten Anfahrt:</strong> ${ergebnis.kostenAnfahrt} €</p>
       <p><strong>Kosten Gutachtenerstellung:</strong> ${ergebnis.kostenErstellung} €</p>
       <p><strong>Kosten Begutachtung:</strong> ${ergebnis.kostenBegutachtung} €</p>
+      <p><strong>Kosten (5% der Schadenshöhe):</strong> ${ergebnis.kostenProzentSchadenshoehe} €</p>
       <hr>
       <h3>Gesamtkosten: ${ergebnis.gesamtKosten} €</h3>
     `;
@@ -174,4 +230,3 @@
   // Initialisierung des Widgets
   initialisiereSchadensrechner();
 })();
-
